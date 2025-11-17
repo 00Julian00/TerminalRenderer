@@ -65,11 +65,6 @@ def get_frame_amount(file_path: str) -> int:
 
     return int(frame_count)
 
-def process_video(file_path: str):
-    generator = stream_video_from_disk(file_path)
-    for frame in generator:
-        yield frame
-
 def stream_video_from_disk(video_path: str) -> Generator[Image.Image, Any, None]:
     """
     Streams a video from the specified path and yields its frames.

@@ -18,7 +18,7 @@ def reset_text_color(terminal: Terminal):
     """Resets the text color to default."""
     print(terminal.normal, end='', flush=True)
 
-def print_at(terminal: Terminal, pos: tuple[int, int], text: str):
+def print_at(_: Terminal, pos: tuple[int, int], text: str):
     """
     Prints the given text at the specified (x, y) position in the terminal.
 
@@ -52,3 +52,16 @@ def get_move_sequence(target: tuple[int, int]) -> str:
     """
     # Terminal escape sequences use 1-indexed coordinates, so add 1 to both x and y
     return f'\033[{target[1] + 1};{target[0] + 1}H'
+
+def get_rgb_sequence(r: int, g: int, b: int) -> str:
+    """Returns the terminal escape sequence to set the text color to the specified RGB value.
+    
+    Args:
+        r: Red component (0-255).
+        g: Green component (0-255).
+        b: Blue component (0-255).
+    
+    Returns:
+        The terminal escape sequence for the specified RGB color.
+    """
+    return f'\x1b[38;2;{r};{g};{b}m'

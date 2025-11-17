@@ -6,7 +6,6 @@ from blessed import Terminal
 import pyximport
 pyximport.install()
 from diff_buffer import compute_diff_buffer
-import terminal_api
 
 @dataclass
 class Color:
@@ -47,8 +46,9 @@ class Pixel:
         return data
 
 class FrameBuffer:
-    def __init__(self):
-        self._buffer: list[Pixel] = []
+    def __init__(self, size: Size = Size(0, 0)):
+        self._buffer: list[Pixel] = [[]]
+        self.grow_to_fit(size)
 
     def write(self, pixels: list[Pixel]) -> list[Position]:
         """
@@ -90,85 +90,48 @@ class FrameBuffer:
             if width > len(row):
                 row.extend([None] * (width - len(row)))
 
-    def get_difference(self, other: 'FrameBuffer', terminal: Terminal, color_threshold: float = 0.05, render_outside_bounds: bool = False) -> str:
+    def get_difference(self, other: 'FrameBuffer', terminal: Terminal, color_threshold: float = 0.05, render_outside_bounds: bool = False) -> 'DiffBuffer':
         """
-        Returns a single string containing all terminal sequences to update the
-        display from the other buffer to this one.
+        Computes which pixels differ between this buffer and another buffer,
         """
 
-        diff_buffer = compute_diff_buffer(
-            self._buffer,
-            other._buffer,
-            terminal.width,
-            terminal.height,
-            color_threshold,
-            render_outside_bounds
+        return DiffBuffer(
+            compute_diff_buffer(
+                self._buffer,
+                other._buffer,
+                terminal.width,
+                terminal.height,
+                color_threshold,
+                render_outside_bounds
+            )
         )
-
-        if not diff_buffer:
-            return ""
-
-        # Sort by y then x for more efficient drawing
-        diff_buffer.sort(key=lambda p: (p[0][1], p[0][0]))
-
-        output_parts = []
-        
-        # Use a non-existent color to ensure the first color is always set
-        current_color = (-1.0, -1.0, -1.0) 
-        # Use a non-existent position to ensure the first move is always made
-        current_position = (-1, -1)
-
-        for (x, y), pixel in diff_buffer:
-            final_color = pixel.color.to_tuple_rgb()
-
-            # If we need to move the cursor
-            if (x, y) != current_position:
-                # Don't move if it's just the next character on the same line
-                if not (y == current_position[1] and x == current_position[0] + 1):
-                    output_parts.append(terminal_api.get_move_sequence((x, y)))
-            
-            # Change color if different from the last one
-            if final_color != current_color:
-                output_parts.append(terminal.color_rgb(int(final_color[0] * 255), int(final_color[1] * 255), int(final_color[2] * 255)))
-                current_color = final_color
-
-            output_parts.append(pixel.char)
-            current_position = (x, y)
-
-        return "".join(output_parts)
-
-@dataclass
-class Element(abc.ABC):
-    """
-    Stores a matrix of Pixels and a couple of methods to manipulate them, as well as the
-    corresponding logic to change the element's look.
-    """
-    priority: int = 0
-    data: list[Pixel] = field(default_factory=list, init=False)
-
-    @property
-    @abc.abstractmethod
-    def transform(self) -> Transform:
-        pass
-
-    @transform.setter
-    @abc.abstractmethod
-    def transform(self, value: Transform):
-        pass
-
-    @abc.abstractmethod
-    def on_terminal_size_change(self, new_size: Size) -> None:
+    
+    def apply_diff_buffer(self, diff_buffer: 'DiffBuffer') -> None:
         """
-        Recalculate the data here if necessary.
+        Applies the given diff buffer to this frame buffer.
         """
-        pass
+        for position, pixel in diff_buffer.buffer:
+            try:
+                self._buffer[position.y][position.x] = pixel
+            except IndexError:
+                raise IndexError(f"Position {position} is out of bounds for ${len(self._buffer[0])}x{len(self._buffer)} frame buffer.")
 
-    @abc.abstractmethod
-    def on_new_frame(self) -> None:
+    def asDiffBuffer(self) -> 'DiffBuffer':
         """
-        Called when a new frame is being rendered.
+        Converts the entire frame buffer into a diff buffer.
         """
-        pass
+        diffs: list[tuple[Position, Pixel]] = []
+
+        for y, row in enumerate(self._buffer):
+            for x, pixel in enumerate(row):
+                if pixel is not None:
+                    diffs.append((Position(x, y), pixel))
+
+        return DiffBuffer(diffs)
+
+class DiffBuffer:
+    def __init__(self, diffs: list[tuple[Position, Pixel]]):
+        self.buffer = diffs
 
 @dataclass
 class DaemonMessage:
@@ -184,8 +147,28 @@ class ProcessedVideo:
     framerate: int
     size: int
     is_in_ascii: bool
-    frames: list[str]
+    frames: list[DiffBuffer] = field(default_factory=list)
+    
+    _current_buffer: FrameBuffer = field(init=False)
+    _term_width: int = field(init=False, default=-1)
+    _term_height: int = field(init=False, default=-1)
 
-    def consume_frames(self) -> iter:
-        for frame in self.frames:
-            yield frame
+    def consume_frames(self, terminal: Terminal) -> iter:
+        first_frame = self.frames[0]
+        max_x = max(pos.x for pos, _ in first_frame.buffer) if first_frame.buffer else 0
+        max_y = max(pos.y for pos, _ in first_frame.buffer) if first_frame.buffer else 0
+
+        self._current_buffer = FrameBuffer(size=Size(max_x, max_y))
+
+        for diff in self.frames:
+            self._current_buffer.apply_diff_buffer(diff)
+            if self._term_width != terminal.width or self._term_height != terminal.height:
+                self._term_width = terminal.width
+                self._term_height = terminal.height
+                size_changed = True
+
+                yield (self._current_buffer.asDiffBuffer(), size_changed)
+            else:
+                size_changed = False
+
+                yield (diff, size_changed)

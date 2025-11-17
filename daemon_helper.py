@@ -1,6 +1,7 @@
 """
-Main application with logging to a dependent daemon terminal
-Terminal window is a true child process that closes automatically
+Daemon helper module for managing the daemon terminal and sending updates
+Consolidates all daemon-related functionality including process management,
+logging, and status updates.
 """
 
 import socket
@@ -11,6 +12,7 @@ import time
 import os
 import atexit
 import signal
+import json
 from pathlib import Path
 
 class TerminalLogHandler(logging.Handler):
@@ -33,19 +35,22 @@ class TerminalLogHandler(logging.Handler):
         self.sock.close()
         super().close()
 
-class LoggerManager:
-    """Manages the logger and terminal daemon"""
+class DaemonManager:
+    """Manages the daemon terminal process, logging, and status updates"""
     
     def __init__(self, port=9999, start_daemon=True):
         self.port = port
         self.daemon_process = None
         self.logger = None
         self.terminal_handler = None
+        self.daemon_sock = None
+        self.is_initialized = False
         
         if start_daemon:
             self.start_daemon_terminal()
             
         self.setup_logger()
+        self.initialize_daemon_socket()
         
         # Register cleanup handlers
         atexit.register(self.cleanup)
@@ -137,6 +142,12 @@ class LoggerManager:
         self.terminal_handler.setFormatter(formatter)
         self.logger.addHandler(self.terminal_handler)
         
+    def initialize_daemon_socket(self):
+        """Initialize the daemon socket for sending stats"""
+        if not self.is_initialized:
+            self.daemon_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.is_initialized = True
+        
     def get_logger(self):
         """Get the configured logger"""
         return self.logger
@@ -164,9 +175,42 @@ class LoggerManager:
                     self.buffer = ''
         
         sys.stderr = StderrToLogger(self.logger, logging.ERROR)
+    
+    def update_daemon(self, frames_shown: int, total_frames: int, idle_time_per_frame: float, 
+                      data_throughput: float, playback_speed: float):
+        """
+        Send a status update to the daemon terminal.
+        
+        Args:
+            frames_shown: Number of frames shown so far
+            total_frames: Total number of frames in the video
+            idle_time_per_frame: Time spent idle per frame (in seconds)
+            data_throughput: Data throughput per frame (in KB)
+            playback_speed: Current playback speed ratio (actual fps / target fps)
+        """
+        if self.daemon_sock is None:
+            return
+        try:
+            msg_dict = {
+                'frames_shown': frames_shown,
+                'total_frames': total_frames,
+                'idle_time_per_frame': idle_time_per_frame,
+                'data_throughput': data_throughput,
+                'playback_speed': playback_speed
+            }
+            json_msg = json.dumps(msg_dict)
+            self.daemon_sock.sendto(json_msg.encode('utf-8'), ('127.0.0.1', self.port))
+        except Exception:
+            pass  # Silently ignore if daemon is not available
         
     def cleanup(self):
         """Clean up resources and terminate daemon"""
+        # Close daemon socket
+        if self.daemon_sock:
+            self.daemon_sock.close()
+            self.daemon_sock = None
+            self.is_initialized = False
+        
         # Close handler
         if self.terminal_handler:
             self.terminal_handler.close()
@@ -188,18 +232,27 @@ class LoggerManager:
             except:
                 pass
 
-# Global logger manager for cleanup
-log_manager = None
 
-def start_external_log():
-    global log_manager
+# Global daemon manager for cleanup
+daemon_manager = None
+
+def start_daemon(port=9999):
+    """
+    Initialize and start the daemon terminal with all functionality.
+    This is the single entry point for daemon initialization.
     
-    # Initialize logger manager
-    log_manager = LoggerManager(port=9999, start_daemon=True)
-    logger = log_manager.get_logger()
+    Args:
+        port: The UDP port to use for communication (default: 9999)
+        
+    Returns:
+        DaemonManager: The daemon manager instance
+    """
+    global daemon_manager
+    
+    # Initialize daemon manager (starts daemon process, sets up logging, initializes socket)
+    daemon_manager = DaemonManager(port=port, start_daemon=True)
     
     # Redirect stderr to logger
-    log_manager.redirect_stderr()
+    daemon_manager.redirect_stderr()
     
-    # Your application code here
-    logger.info("Application started")
+    return daemon_manager

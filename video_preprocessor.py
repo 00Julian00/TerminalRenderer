@@ -4,10 +4,9 @@ import time
 import os
 import argparse
 
-import elements
-import compositor
 import data
 import video_processing
+from processing_pipeline import VideoProcessor
 
 # Progress bar state
 _start_time = None
@@ -60,39 +59,26 @@ def reset_progress_bar():
     _progress_line = None
 
 def process_video(file_path: str, ascii_mode: bool = False, size: int = 32):
+    processor = VideoProcessor()
     terminal = Terminal()
-    
-    vid = elements.element_VIDEO(
-        video_path=file_path,
-        render_as_ascii=ascii_mode,
-        size=size
-    )
 
-    last_frame_buffer = data.FrameBuffer()
     total_frames = video_processing.get_frame_amount(file_path)
-    current_frame = 0
-
-    processed_video = data.ProcessedVideo(
-        framerate=video_processing.get_framerate(file_path),
-        size=vid.size,
-        is_in_ascii=vid.render_as_ascii,
-        frames=[]
-    )
+    
+    frame_generator = processor.process_video(file_path, ascii_mode, size)
+    frames = []
 
     # Use hidden cursor for cleaner display
     with terminal.hidden_cursor():
-        while current_frame < total_frames:
-            frame_buffer = compositor.construct_frame_buffer([vid])
+        for frame in frame_generator:
+            frames.append(frame[0])
+            progress_bar(len(frames), total_frames, terminal)
 
-            if not frame_buffer:
-                break
-
-            processed_video.frames.append(frame_buffer.get_difference(last_frame_buffer, terminal, render_outside_bounds=True))
-
-            last_frame_buffer = frame_buffer
-            
-            current_frame += 1
-            progress_bar(current_frame, total_frames, terminal)
+    processed_video = data.ProcessedVideo(
+        framerate=video_processing.get_framerate(file_path),
+        size=size,
+        is_in_ascii=ascii_mode,
+        frames=frames
+    )
 
     # Calculate total time before resetting
     elapsed_time = time.time() - _start_time if _start_time else 0

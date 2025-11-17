@@ -39,6 +39,6 @@ def compute_diff_buffer(self_buffer, other_buffer, term_width, term_height,
             if needs_update:
                 from data import Pixel, Color, Position
                 pixel_to_draw = self_pixel if self_pixel is not None else Pixel(' ', Color(0, 0, 0), Position(x, y))
-                diff_buffer.append(((x, y), pixel_to_draw))
+                diff_buffer.append((Position(x, y), pixel_to_draw))
     
     return diff_buffer
