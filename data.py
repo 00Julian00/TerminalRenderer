@@ -1,8 +1,12 @@
 from dataclasses import dataclass, field
 import abc
-import logging
 
 from blessed import Terminal
+
+import pyximport
+pyximport.install()
+from diff_buffer import compute_diff_buffer
+import terminal_api
 
 @dataclass
 class Color:
@@ -91,53 +95,15 @@ class FrameBuffer:
         Returns a single string containing all terminal sequences to update the
         display from the other buffer to this one.
         """
-        diff_buffer: list[tuple[tuple[int, int], Pixel]] = []
 
-        # Get terminal size for bounds checking
-        term_width = terminal.width
-        term_height = terminal.height
-
-        # Pre-compute squared threshold to avoid sqrt calculations
-        threshold_squared = color_threshold * color_threshold
-
-        # Iterate over the taller buffer. If one buffer is taller, the data of
-        # the extra pixels are all considered changed.
-        max_height = max(len(self._buffer), len(other._buffer))
-        for y in range(max_height):
-            if y >= term_height and not render_outside_bounds:
-                continue  # Skip rows outside terminal bounds
-            self_row = self._buffer[y] if y < len(self._buffer) else []
-            other_row = other._buffer[y] if y < len(other._buffer) else []
-            
-            max_width = max(len(self_row), len(other_row))
-            for x in range(max_width):
-                if x >= term_width and not render_outside_bounds:
-                    continue  # Skip columns outside terminal bounds
-                self_pixel = self_row[x] if x < len(self_row) else None
-                other_pixel = other_row[x] if x < len(other_row) else None
-
-                # Check if pixel needs updating
-                needs_update = False
-
-                if (self_pixel is None) != (other_pixel is None):
-                    # One exists, the other doesn't (XOR) - definitely update
-                    needs_update = True
-                elif self_pixel is not None and other_pixel is not None:
-                    # Both exist, check if they differ
-                    if self_pixel.char != other_pixel.char:
-                        needs_update = True
-                    else:
-                        # Inline color comparison (no sqrt, no function call)
-                        r1, g1, b1 = self_pixel.color.to_tuple_rgb()
-                        r2, g2, b2 = other_pixel.color.to_tuple_rgb()
-                        distance_squared = (r1 - r2)**2 + (g1 - g2)**2 + (b1 - b2)**2
-                        if distance_squared >= threshold_squared:
-                            needs_update = True
-                # If both are None, needs_update stays False
-
-                if needs_update:
-                    pixel_to_draw = self_pixel if self_pixel is not None else Pixel(' ', Color(0, 0, 0), Position(x, y))
-                    diff_buffer.append(((x, y), pixel_to_draw))
+        diff_buffer = compute_diff_buffer(
+            self._buffer,
+            other._buffer,
+            terminal.width,
+            terminal.height,
+            color_threshold,
+            render_outside_bounds
+        )
 
         if not diff_buffer:
             return ""
@@ -159,7 +125,7 @@ class FrameBuffer:
             if (x, y) != current_position:
                 # Don't move if it's just the next character on the same line
                 if not (y == current_position[1] and x == current_position[0] + 1):
-                    output_parts.append(terminal.move_xy(x, y))
+                    output_parts.append(terminal_api.get_move_sequence((x, y)))
             
             # Change color if different from the last one
             if final_color != current_color:
