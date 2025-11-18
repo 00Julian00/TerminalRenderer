@@ -3,7 +3,6 @@ import cProfile
 import asyncio
 import logging
 import time
-import pickle
 
 from blessed import Terminal
 
@@ -11,8 +10,9 @@ import data
 import terminal_api
 from processing_pipeline import VideoProcessor
 import daemon_helper
-from video_processing import get_framerate
-from data import ProcessedVideo
+import video_decoder
+import video_encoder
+import video_processing
 # from audio_player import prepare_audio, AudioPlayer
 
 terminal = Terminal()
@@ -27,22 +27,23 @@ async def _play_video(file_path: str, ascii_mode: bool = False, size: int = 32, 
     if not ascii_mode:
         size *= 2 # Keep scaling consistent between ASCII and normal mode
 
-    if file_path.endswith('.pkl') or file_path.endswith('.pickle'):
-        with open(file_path, 'rb') as f:
-            processed: ProcessedVideo = pickle.load(f)
+    if (file_path.lower().endswith('.ctv')):
+        processed = video_decoder.VideoDecoder(file_path)
+        frame_amount = processed.get_total_frames()
     else:
-        frame_generator = processor.process_video(file_path, ascii_mode, size, 1024)
-        processed = data.ProcessedVideo(
-            framerate=get_framerate(file_path),
-            size=size,
-            is_in_ascii=ascii_mode,
-            frames=[frame[0] for frame in frame_generator]
+        frame_amount = video_processing.get_frame_amount(file_path)
+        encoder = video_encoder.VideoEncoder(framerate=video_processing.get_framerate(file_path))
+        frame_generator = processor.process_video(file_path, ascii_mode, size, batch_size=16)
+
+        encoder.encode_all(frame_generator)
+
+        processed = video_decoder.VideoDecoder.from_bytes(
+            encoder.get_data()
         )
 
-    frame_generator = processed.consume_frames(terminal)
+    frame_generator = processed.consume_frames()
 
     frame_rate = processed.framerate
-    frame_amount = len(processed.frames)
 
     frame_time = 1.0 / frame_rate
 
@@ -67,7 +68,8 @@ async def _play_video(file_path: str, ascii_mode: bool = False, size: int = 32, 
         if output is None:
             break
 
-        diff_buffer, size_changed = output
+        # diff_buffer, size_changed = output
+        diff_buffer = output
 
         ansi_string = processor.diff_buffer_to_ANSI(diff_buffer, terminal)
 
@@ -94,7 +96,7 @@ def play_video(file_path: str, ascii_mode: bool = False, size: int = 32, debug_m
     # global audio_player
     
     terminal_api.clear_screen(terminal)
-    terminal_api.hide_cursor(terminal)
+    terminal_api.hide_cursor()
     
     if debug_mode:
         daemon_helper.start_daemon()
@@ -103,15 +105,22 @@ def play_video(file_path: str, ascii_mode: bool = False, size: int = 32, debug_m
     
     try:    
         asyncio.run(_play_video(file_path, ascii_mode, size, debug_mode))
+
+    except KeyboardInterrupt:
+        pass
+
     except Exception as e:
-        terminal_api.reset_text_color(terminal)
         terminal_api.clear_screen(terminal)
-        terminal_api.show_cursor(terminal)
-        raise Exception(f"An error occurred: {e}")
-    
-    terminal_api.reset_text_color(terminal)
+        terminal_api.reset_text_color(terminal)
+        terminal_api.show_cursor()
+        raise Exception(f"\nAn error occurred: {e}")
+    finally:
+        # Always restore terminal state, even if interrupted or exception occurred
+        terminal_api.reset_text_color(terminal)
+        terminal_api.show_cursor()
+
+    # Avoid clearing the error message
     terminal_api.clear_screen(terminal)
-    terminal_api.show_cursor(terminal)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Play a video in the terminal.")

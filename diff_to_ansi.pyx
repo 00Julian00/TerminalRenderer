@@ -1,6 +1,6 @@
 from blessed import Terminal
 from data import DiffBuffer
-from terminal_api import get_move_sequence, get_rgb_sequence, get_rgb_background_sequence
+from terminal_api import get_move_sequence, get_rgb_sequence, get_rgb_background_sequence, get_rgb_front_and_back_sequence
 
 def diff_buffer_to_ANSI(diff_buffer: DiffBuffer, terminal: Terminal) -> str:
     if not diff_buffer.buffer:
@@ -13,6 +13,7 @@ def diff_buffer_to_ANSI(diff_buffer: DiffBuffer, terminal: Terminal) -> str:
     
     # Use a non-existent color to ensure the first color is always set
     current_color = (-1.0, -1.0, -1.0) 
+    current_background_color = (-1.0, -1.0, -1.0)
     # Use a non-existent position to ensure the first move is always made
     current_position = (-1, -1)
 
@@ -24,17 +25,25 @@ def diff_buffer_to_ANSI(diff_buffer: DiffBuffer, terminal: Terminal) -> str:
         # If we need to move the cursor
         if (x, y) != current_position:
             # Don't move if it's just the next character on the same line
-            if not (y == current_position[1] and x == current_position[0] + 1):
+            if not (y == current_position[1] and x == current_position[0] + 1) or (y == current_position[1] + 1 and x == 0):
                 output_parts.append(get_move_sequence((x, y)))
         
-        # Change color if different from the last one
-        if final_color != current_color or (final_background_color is not None and final_background_color != current_color):
-            output_parts.append(get_rgb_sequence(int(final_color[0] * 255), int(final_color[1] * 255), int(final_color[2] * 255)))
+        fg_changed = final_color != current_color
+        bg_changed = final_background_color != current_background_color
 
-            if final_background_color is not None:
-                output_parts.append(get_rgb_background_sequence(int(final_background_color[0] * 255), int(final_background_color[1] * 255), int(final_background_color[2] * 255)))
-            
+        if fg_changed and bg_changed and final_background_color is not None:
+            output_parts.append(get_rgb_front_and_back_sequence(
+                int(final_color[0] * 255), int(final_color[1] * 255), int(final_color[2] * 255),
+                int(final_background_color[0] * 255), int(final_background_color[1] * 255), int(final_background_color[2] * 255)
+            ))
+        elif fg_changed:
+            output_parts.append(get_rgb_sequence(int(final_color[0] * 255), int(final_color[1] * 255), int(final_color[2] * 255)))
+        elif bg_changed and final_background_color is not None:
+            output_parts.append(get_rgb_background_sequence(int(final_background_color[0] * 255), int(final_background_color[1] * 255), int(final_background_color[2] * 255)))
+
+        if fg_changed:
             current_color = final_color
+        if bg_changed:
             current_background_color = final_background_color
 
         output_parts.append(pixel.char)

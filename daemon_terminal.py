@@ -29,7 +29,7 @@ class LogReceiverDaemon:
             'playback_speed': 0.0
         }
         # Hide cursor for cleaner display
-        terminal_api.hide_cursor(self.term)
+        terminal_api.hide_cursor()
         
     def check_parent_alive(self):
         """Check if parent process is still running"""

@@ -1,12 +1,11 @@
-import pickle
 from blessed import Terminal
 import time
 import os
 import argparse
 
-import data
 import video_processing
 from processing_pipeline import VideoProcessor
+import video_encoder
 
 # Progress bar state
 _start_time = None
@@ -63,37 +62,31 @@ def process_video(file_path: str, ascii_mode: bool = False, size: int = 32):
     terminal = Terminal()
 
     _start_time = time.time()
-    reset_progress_bar_flag = True
 
     total_frames = video_processing.get_frame_amount(file_path)
     
-    frame_generator = processor.process_video(file_path, ascii_mode, size, batch_size=32)
-    frames = []
+    frame_generator = processor.process_video(file_path, ascii_mode, size, batch_size=16)
 
-    # Use hidden cursor for cleaner display
+    encoder = video_encoder.VideoEncoder(framerate=video_processing.get_framerate(file_path))
+
+    progress_idx = 0
+
     with terminal.hidden_cursor():
         for frame in frame_generator:
-
-            frames.append(frame[0])
-            progress_bar("Processing frames", len(frames), total_frames, terminal)
-
-    processed_video = data.ProcessedVideo(
-        framerate=video_processing.get_framerate(file_path),
-        size=size,
-        is_in_ascii=ascii_mode,
-        frames=frames
-    )
-
-    # Calculate total time before resetting
-    elapsed_time = time.time() - _start_time if _start_time else 0
+            encoder.encode_diff(frame)
+            progress_idx += 1
+            
+            progress_bar("Processing frames", progress_idx, total_frames, terminal)
 
     # Move to new line after progress bar
     print("\nSaving processed video...")
 
     target_location = os.path.dirname(file_path)
-    output_path = os.path.join(target_location, "processed_video.pkl")
-    with open(output_path, "wb") as f:
-        pickle.dump(processed_video, f)
+    output_path = os.path.join(target_location, "processed_video.ctv")
+
+    encoder.save(output_path)
+
+    elapsed_time = time.time() - _start_time if _start_time else 0
 
     print(f"Video processing completed. Total time: {elapsed_time:.2f} seconds.")
     print(f"Output saved to: {output_path}")

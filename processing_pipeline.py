@@ -11,7 +11,6 @@ from diff_to_ansi import diff_buffer_to_ANSI
 class VideoProcessor:
     def __init__(self):
         self.terminal = Terminal()
-        self.term_width, self.term_height = self.terminal.width, self.terminal.height
         self._frame_queue = queue.Queue(maxsize=120) # Limit queue size to prevent high memory usage
         self._matrix_queue = queue.Queue(maxsize=120) # Limit queue size
         self._frame_production_finished = False
@@ -26,7 +25,7 @@ class VideoProcessor:
                 self._frame_queue.put(frame)
             self._frame_production_finished = True
 
-        thread = threading.Thread(target=produce_frames)
+        thread = threading.Thread(target=produce_frames, daemon=True)
         thread.start()
 
     def _matrix_producer_thread(self, size: Size, as_ascii: bool, aspect_ratio: float, batch_size: int):
@@ -59,7 +58,7 @@ class VideoProcessor:
             
             self._matrix_production_finished = True
 
-        thread = threading.Thread(target=produce_matrices)
+        thread = threading.Thread(target=produce_matrices, daemon=True)
         thread.start()
 
     def process_video(self, file_path: str, as_ascii: bool = False, size: int = 32, batch_size: int = 1) -> iter:
@@ -89,12 +88,10 @@ class VideoProcessor:
 
             color_threshold = NORMAL_MODE_COLOR_OFFSET_THRESHOLD if not as_ascii else ASCII_MODE_COLOR_OFFSET_THRESHOLD
 
-            output = buffer.get_difference(last_buffer, self.terminal, color_threshold=color_threshold) if self.terminal.width == self.term_width and self.terminal.height == self.term_height else buffer.get_difference(FrameBuffer(), self.terminal)
-
-            size_changed = self.terminal.width != self.term_width or self.terminal.height != self.term_height
+            output = buffer.get_difference(last_buffer, self.terminal, color_threshold=color_threshold, render_outside_bounds=True)
 
             self.term_width, self.term_height = self.terminal.width, self.terminal.height
 
             last_buffer = buffer
 
-            yield (output, size_changed)
+            yield output

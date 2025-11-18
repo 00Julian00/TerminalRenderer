@@ -141,34 +141,3 @@ class DaemonMessage:
     idle_time_per_frame: float
     data_throughput: float
     playback_speed: float
-
-@dataclass
-class ProcessedVideo:
-    framerate: int
-    size: int
-    is_in_ascii: bool
-    frames: list[DiffBuffer] = field(default_factory=list)
-    
-    _current_buffer: FrameBuffer = field(init=False)
-    _term_width: int = field(init=False, default=-1)
-    _term_height: int = field(init=False, default=-1)
-
-    def consume_frames(self, terminal: Terminal) -> iter:
-        first_frame = self.frames[0]
-        max_x = max(pos.x for pos, _ in first_frame.buffer) if first_frame.buffer else 0
-        max_y = max(pos.y for pos, _ in first_frame.buffer) if first_frame.buffer else 0
-
-        self._current_buffer = FrameBuffer(size=Size(max_x, max_y))
-
-        for diff in self.frames:
-            self._current_buffer.apply_diff_buffer(diff)
-            if self._term_width != terminal.width or self._term_height != terminal.height:
-                self._term_width = terminal.width
-                self._term_height = terminal.height
-                size_changed = True
-
-                yield (self._current_buffer.asDiffBuffer(), size_changed)
-            else:
-                size_changed = False
-
-                yield (diff, size_changed)
