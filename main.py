@@ -10,6 +10,7 @@ from ffpyplayer.player import MediaPlayer
 import terminal_api
 import daemon_helper
 import video_decoder
+import ffmpeg
 
 terminal = Terminal()
 
@@ -23,9 +24,11 @@ def _play_video(file_path: str, size: int = 32, debug_mode: bool = False, muted:
         compression
     )
     
-    # Initialize audio player
-    # vn=True disables video decoding in the player (audio only)
-    # loglevel='quiet' prevents ffmpeg output from corrupting the terminal
+    probe = ffmpeg.probe(file_path)
+    audio_streams = [stream for stream in probe['streams'] if stream['codec_type'] == 'audio']
+    
+    muted = not (len(audio_streams) > 0 and not muted)
+
     player = None
     if not muted:
         player = MediaPlayer(file_path, ff_opts={'vn': True, 'sn': True}, loglevel='quiet')
