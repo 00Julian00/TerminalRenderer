@@ -29,8 +29,6 @@ def _play_video(file_path: str, size: int = 32, debug_mode: bool = False, muted:
     player = None
     if not muted:
         player = MediaPlayer(file_path, ff_opts={'vn': True, 'sn': True}, loglevel='quiet')
-    
-    total_lost_time = 0.0
 
     diff_generator = decoder.diff_frame_generator()
 
@@ -56,6 +54,8 @@ def _play_video(file_path: str, size: int = 32, debug_mode: bool = False, muted:
 
     try:
         while True:
+            frame_start_time = time.time()
+
             # Render the current frame
             terminal_api.print_at_bytes((0, 0), frame)
 
@@ -71,9 +71,6 @@ def _play_video(file_path: str, size: int = 32, debug_mode: bool = False, muted:
             audio_pts = player.get_pts() if player else None
 
             if audio_pts is not None:
-                # drift = how much video is ahead of audio
-                # positive: video is ahead (wait for audio)
-                # negative: video is behind (audio is ahead)
                 drift = video_pts - audio_pts
                 
                 if drift > 0:
@@ -101,13 +98,14 @@ def _play_video(file_path: str, size: int = 32, debug_mode: bool = False, muted:
                     time.sleep(sleep_time)
 
             if debug_mode and daemon_helper.daemon_manager:
+                frame_end_time = time.time()
                 # Calculate stats
                 daemon_helper.daemon_manager.update_daemon(
                     frames_shown=frame_idx,
                     total_frames=frame_amount,
                     frames_buffered=decoder.get_buffered_frame_count(),
                     data_throughput=len(frame) / 1024,
-                    playback_speed=1.0 
+                    playback_speed= min(1.0 / (frame_end_time - frame_start_time) / frame_rate, 1.0)
                 )
     finally:
         # Mute immediately to stop any buffered audio from playing

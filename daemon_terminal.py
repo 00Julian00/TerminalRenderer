@@ -12,45 +12,7 @@ import threading
 import json
 from blessed import Terminal
 
-def hide_cursor():
-    """Hides the cursor in the terminal."""
-    # Use direct ANSI escape sequence for cross-platform compatibility (Linux, macOS, Windows 10+)
-    sys.stdout.write('\x1b[?25l')
-    sys.stdout.flush()
-
-def get_move_sequence(target: tuple[int, int]) -> str:
-    """Returns the terminal escape sequence to move the cursor to the target position.
-    
-    Args:
-        target: A tuple (x, y) representing the 0-indexed position.
-    
-    Returns:
-        The terminal escape sequence with 1-indexed coordinates.
-    """
-    return f'\033[{target[1] + 1};{target[0] + 1}H'
-
-def print_at(_: Terminal, pos: tuple[int, int], text: str):
-    """
-    Prints the given text at the specified (x, y) position in the terminal.
-
-    Args:
-        terminal (Terminal): The terminal object used to control cursor movement.
-        pos (tuple[int, int]): A tuple (x, y) representing the position to print the text.
-        text (str): The text to be printed at the specified position.
-    """
-    sys.stdout.write(get_move_sequence((pos[0], pos[1])) + text)
-    sys.stdout.flush()
-
-def clear_and_print_at(terminal: Terminal, pos: tuple[int, int], text: str):
-    """
-    Clears the terminal screen and prints the given text at the specified (x, y) position.
-
-    Args:
-        terminal (Terminal): The terminal object used to control cursor movement.
-        pos (tuple[int, int]): A tuple (x, y) representing the position to print the text.
-        text (str): The text to be printed at the specified position.
-    """
-    print_at(terminal, pos, terminal.home + terminal.clear + '\x1b[3J' + text)
+from terminal_api import clear_and_print_at, hide_cursor
 
 class LogReceiverDaemon:
     def __init__(self, port=9999, host='127.0.0.1', parent_pid=None):

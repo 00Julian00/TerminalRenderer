@@ -68,7 +68,7 @@ def clear_and_print_at(terminal: Terminal, pos: tuple[int, int], text: str):
         pos (tuple[int, int]): A tuple (x, y) representing the position to print the text.
         text (str): The text to be printed at the specified position.
     """
-    print_at(terminal, pos, terminal.home + terminal.clear + '\x1b[3J' + text)
+    print_at(pos, terminal.home + terminal.clear + '\x1b[3J' + text)
 
 @lru_cache(maxsize=4096)
 def get_move_sequence(target: tuple[int, int]) -> str:
