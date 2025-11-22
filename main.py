@@ -3,75 +3,38 @@ import cProfile
 import asyncio
 import logging
 import time
+import os
 
 from blessed import Terminal
 
-import data
+import pyximport
+pyximport.install()
+
 import terminal_api
-from processing_pipeline import VideoProcessor
 import daemon_helper
 import video_decoder
-import video_encoder
-import video_processing
-# from audio_player import prepare_audio, AudioPlayer
 
 terminal = Terminal()
 
-processor = VideoProcessor()
+if os.name == 'nt':
+    os.system('chcp 65001 >nul')
 
-# audio_player: AudioPlayer = None
+def _play_video(file_path: str, size: int = 32, debug_mode: bool = False):
+    decoder = video_decoder.VideoDecoder(
+        file_path,
+        size
+    )
 
-async def _play_video(file_path: str, ascii_mode: bool = False, size: int = 32, debug_mode: bool = False):
-    frame_idx = 0
+    diff_generator = decoder.diff_frame_generator()
 
-    if not ascii_mode:
-        size *= 2 # Keep scaling consistent between ASCII and normal mode
-
-    if (file_path.lower().endswith('.ctv')):
-        processed = video_decoder.VideoDecoder(file_path)
-        frame_amount = processed.get_total_frames()
-    else:
-        frame_amount = video_processing.get_frame_amount(file_path)
-        encoder = video_encoder.VideoEncoder(framerate=video_processing.get_framerate(file_path))
-        frame_generator = processor.process_video(file_path, ascii_mode, size, batch_size=16)
-
-        encoder.encode_all(frame_generator)
-
-        processed = video_decoder.VideoDecoder.from_bytes(
-            encoder.get_data()
-        )
-
-    frame_generator = processed.consume_frames()
-
-    frame_rate = processed.framerate
-
+    frame_rate = decoder.get_frame_rate()
+    frame_amount = decoder.get_total_frames()
     frame_time = 1.0 / frame_rate
 
-    # audio_player = prepare_audio(file_path, frame_rate)
-    # audio_player.start()  # Start the audio stream
-
-    ansi_string = ""
-    size_changed = False
-
-    while True:
+    for frame_idx, frame in enumerate(diff_generator):
         frame_start = time.time()
 
-        # audio_player.play_chunk(frame_idx) # Disabled at the moment due to technical issues
-
-        if ansi_string and size_changed:
-            terminal_api.clear_and_print_at(terminal, (0, 0), ansi_string)
-        elif ansi_string:
-            terminal_api.print_at(terminal, (0, 0), ansi_string)
-
-        output = next(frame_generator, None)
-
-        if output is None:
-            break
-
-        # diff_buffer, size_changed = output
-        diff_buffer = output
-
-        ansi_string = processor.diff_buffer_to_ANSI(diff_buffer, terminal)
+        terminal_api.print_at_bytes((0, 0), frame)
 
         elapsed = time.time() - frame_start
         sleep_time = max(0, frame_time - elapsed)
@@ -84,17 +47,14 @@ async def _play_video(file_path: str, ascii_mode: bool = False, size: int = 32, 
             daemon_helper.daemon_manager.update_daemon(
                 frames_shown=frame_idx,
                 total_frames=frame_amount,
-                idle_time_per_frame=sleep_time,
-                data_throughput=len(ansi_string.encode('utf-8')) / 1024,
+                frames_buffered=decoder.get_buffered_frame_count(),
+                data_throughput=len(frame) / 1024,
                 playback_speed=playback_speed
             )
         
-        frame_idx += 1
-        await asyncio.sleep(sleep_time)
+        time.sleep(sleep_time)
 
-def play_video(file_path: str, ascii_mode: bool = False, size: int = 32, debug_mode: bool = False):
-    # global audio_player
-    
+def play_video(file_path: str, size: int = 32, debug_mode: bool = False):
     terminal_api.clear_screen(terminal)
     terminal_api.hide_cursor()
     
@@ -104,7 +64,7 @@ def play_video(file_path: str, ascii_mode: bool = False, size: int = 32, debug_m
         logging.getLogger().setLevel(logging.ERROR)
     
     try:    
-        asyncio.run(_play_video(file_path, ascii_mode, size, debug_mode))
+        _play_video(file_path, size, debug_mode)
 
     except KeyboardInterrupt:
         pass
@@ -126,11 +86,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Play a video in the terminal.")
     parser.add_argument("file_path", help="The path to the video file.")
     parser.add_argument("--size", type=int, default=32, help="The size of the video element.")
-    parser.add_argument("--ascii", action="store_true", help="Render video as ASCII.")
     parser.add_argument("--debug", action="store_true", help="Open debug terminal and run with profiler.")
     args = parser.parse_args()
 
     if args.debug:
-        cProfile.run('play_video(args.file_path, args.ascii, args.size, args.debug)')
+        cProfile.run('play_video(args.file_path, args.size, args.debug)')
     else:
-        play_video(args.file_path, args.ascii, args.size, args.debug)
+        play_video(args.file_path, args.size, args.debug)

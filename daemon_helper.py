@@ -125,9 +125,6 @@ class DaemonManager:
                 # Fallback: run without terminal
                 self.daemon_process = subprocess.Popen(cmd_args)
         
-        # Give daemon time to start
-        time.sleep(2)
-        
     def setup_logger(self):
         """Configure the logger with terminal handler"""
         self.logger = logging.getLogger()
@@ -176,7 +173,7 @@ class DaemonManager:
         
         sys.stderr = StderrToLogger(self.logger, logging.ERROR)
     
-    def update_daemon(self, frames_shown: int, total_frames: int, idle_time_per_frame: float, 
+    def update_daemon(self, frames_shown: int, total_frames: int, frames_buffered: float, 
                       data_throughput: float, playback_speed: float):
         """
         Send a status update to the daemon terminal.
@@ -184,7 +181,7 @@ class DaemonManager:
         Args:
             frames_shown: Number of frames shown so far
             total_frames: Total number of frames in the video
-            idle_time_per_frame: Time spent idle per frame (in seconds)
+            frames_buffered: Number of frames buffered
             data_throughput: Data throughput per frame (in KB)
             playback_speed: Current playback speed ratio (actual fps / target fps)
         """
@@ -194,7 +191,7 @@ class DaemonManager:
             msg_dict = {
                 'frames_shown': frames_shown,
                 'total_frames': total_frames,
-                'idle_time_per_frame': idle_time_per_frame,
+                'frames_buffered': frames_buffered,
                 'data_throughput': data_throughput,
                 'playback_speed': playback_speed
             }

@@ -11,7 +11,46 @@ import time
 import threading
 import json
 from blessed import Terminal
-import terminal_api
+
+def hide_cursor():
+    """Hides the cursor in the terminal."""
+    # Use direct ANSI escape sequence for cross-platform compatibility (Linux, macOS, Windows 10+)
+    sys.stdout.write('\x1b[?25l')
+    sys.stdout.flush()
+
+def get_move_sequence(target: tuple[int, int]) -> str:
+    """Returns the terminal escape sequence to move the cursor to the target position.
+    
+    Args:
+        target: A tuple (x, y) representing the 0-indexed position.
+    
+    Returns:
+        The terminal escape sequence with 1-indexed coordinates.
+    """
+    return f'\033[{target[1] + 1};{target[0] + 1}H'
+
+def print_at(_: Terminal, pos: tuple[int, int], text: str):
+    """
+    Prints the given text at the specified (x, y) position in the terminal.
+
+    Args:
+        terminal (Terminal): The terminal object used to control cursor movement.
+        pos (tuple[int, int]): A tuple (x, y) representing the position to print the text.
+        text (str): The text to be printed at the specified position.
+    """
+    sys.stdout.write(get_move_sequence((pos[0], pos[1])) + text)
+    sys.stdout.flush()
+
+def clear_and_print_at(terminal: Terminal, pos: tuple[int, int], text: str):
+    """
+    Clears the terminal screen and prints the given text at the specified (x, y) position.
+
+    Args:
+        terminal (Terminal): The terminal object used to control cursor movement.
+        pos (tuple[int, int]): A tuple (x, y) representing the position to print the text.
+        text (str): The text to be printed at the specified position.
+    """
+    print_at(terminal, pos, terminal.home + terminal.clear + '\x1b[3J' + text)
 
 class LogReceiverDaemon:
     def __init__(self, port=9999, host='127.0.0.1', parent_pid=None):
@@ -24,12 +63,11 @@ class LogReceiverDaemon:
         self.daemon_stats = {
             'frames_shown': 0,
             'total_frames': 0,
-            'idle_time_per_frame': 0.0,
+            'frames_buffered': 0.0,
             'data_throughput': 0.0,
             'playback_speed': 0.0
         }
-        # Hide cursor for cleaner display
-        terminal_api.hide_cursor()
+        hide_cursor()
         
     def check_parent_alive(self):
         """Check if parent process is still running"""
@@ -59,10 +97,10 @@ class LogReceiverDaemon:
         """Initialize the UDP socket"""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.host, self.port))
-        self.sock.settimeout(0.5)  # Short timeout for checking shutdown
+        self.sock.settimeout(2)  # Short timeout for checking shutdown
     
     def display_stats(self):
-        """Display daemon stats using terminal_api functions"""
+        """Display stats"""
         # Calculate playback speed as percentage
         playback_speed_percent = self.daemon_stats['playback_speed'] * 100
         
@@ -72,11 +110,10 @@ class LogReceiverDaemon:
         else:
             playback_speed_color = self.term.green
         
-        # Color idle time: green if above 0.01s, yellow if between 0 and 0.01s, red if 0s
-        idle_time = self.daemon_stats['idle_time_per_frame']
-        if idle_time > 0.01:
+        frames_buffered = int(self.daemon_stats['frames_buffered'])
+        if frames_buffered > 16:
             idle_time_color = self.term.green
-        elif idle_time > 0:
+        elif frames_buffered > 1:
             idle_time_color = self.term.yellow
         else:
             idle_time_color = self.term.red
@@ -86,7 +123,7 @@ class LogReceiverDaemon:
         stats_text += f"Frames Shown:{self.term.normal} {min(int(self.daemon_stats['frames_shown']), int(self.daemon_stats['total_frames']))}\n"
         stats_text += f"Total Frames:{self.term.normal} {self.daemon_stats['total_frames']}\n"
         stats_text += f"Playback Speed:{self.term.normal} {playback_speed_color}{playback_speed_percent:.2f}%{self.term.normal}\n"
-        stats_text += f"Idle Time (Last Frame):{self.term.normal} {idle_time_color}{idle_time:.4f}s{self.term.normal}\n"
+        stats_text += f"Frames Buffered:{self.term.normal} {idle_time_color}{frames_buffered}{self.term.normal}\n"
         stats_text += f"Data Throughput:{self.term.normal} {self.daemon_stats['data_throughput']:.2f} KB/frame"
 
         # Create progress bar
@@ -96,7 +133,7 @@ class LogReceiverDaemon:
         final_output = stats_text + self.term.move(self.term.height - 1, 0) + progress_bar
 
         # Print the combined string in one go
-        terminal_api.clear_and_print_at(self.term, (0, 0), final_output)
+        clear_and_print_at(self.term, (0, 0), final_output)
     
     def create_progress_bar(self):
         """Create a progress bar spanning the entire terminal width"""
@@ -140,7 +177,7 @@ class LogReceiverDaemon:
         try:
             # Try to parse as JSON first
             data = json.loads(message)
-            if all(key in data for key in ['frames_shown', 'total_frames', 'idle_time_per_frame', 'data_throughput']):
+            if all(key in data for key in ['frames_shown', 'total_frames', 'frames_buffered', 'data_throughput', 'playback_speed']):
                 # This is a daemon stats message
                 self.daemon_stats = data
                 self.display_stats()

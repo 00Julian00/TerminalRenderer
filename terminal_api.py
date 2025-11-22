@@ -1,16 +1,19 @@
 import sys
+import os
+from functools import lru_cache
 
 from blessed import Terminal
 
+if os.name == 'nt':
+    os.system('chcp 65001 >nul')
+
 def hide_cursor():
     """Hides the cursor in the terminal."""
-    # Use direct ANSI escape sequence for cross-platform compatibility (Linux, macOS, Windows 10+)
     sys.stdout.write('\x1b[?25l')
     sys.stdout.flush()
 
 def show_cursor():
     """Shows the cursor in the terminal."""
-    # Use direct ANSI escape sequence for cross-platform compatibility (Linux, macOS, Windows 10+)
     sys.stdout.write('\x1b[?25h')
     sys.stdout.flush()
 
@@ -22,7 +25,7 @@ def reset_text_color(terminal: Terminal):
     """Resets the text color to default."""
     print(terminal.normal, end='', flush=True)
 
-def print_at(_: Terminal, pos: tuple[int, int], text: str):
+def print_at(pos: tuple[int, int], text: str):
     """
     Prints the given text at the specified (x, y) position in the terminal.
 
@@ -33,6 +36,28 @@ def print_at(_: Terminal, pos: tuple[int, int], text: str):
     """
     sys.stdout.write(get_move_sequence((pos[0], pos[1])) + text)
     sys.stdout.flush()
+
+def write_all(fd, data):
+    """
+    Robustly write all data to a file descriptor, handling partial writes.
+    """
+    while data:
+        # os.write returns the number of bytes actually written
+        bytes_written = os.write(fd, data)
+        if not bytes_written:
+            # Should not happen with stdout unless closed, but prevents infinite loop
+            break
+        # Slice the data to remove the part that was just written
+        data = data[bytes_written:]
+
+def print_at_bytes(pos: tuple[int, int], text: bytearray):
+    data = get_move_sequence_bytes(pos) + text
+    try:
+        write_all(1, data)
+    except OSError:
+        # Fallback if raw descriptor fails
+        sys.stdout.buffer.write(data)
+        sys.stdout.flush()
 
 def clear_and_print_at(terminal: Terminal, pos: tuple[int, int], text: str):
     """
@@ -45,6 +70,7 @@ def clear_and_print_at(terminal: Terminal, pos: tuple[int, int], text: str):
     """
     print_at(terminal, pos, terminal.home + terminal.clear + '\x1b[3J' + text)
 
+@lru_cache(maxsize=4096)
 def get_move_sequence(target: tuple[int, int]) -> str:
     """Returns the terminal escape sequence to move the cursor to the target position.
     
@@ -56,32 +82,7 @@ def get_move_sequence(target: tuple[int, int]) -> str:
     """
     return f'\033[{target[1] + 1};{target[0] + 1}H'
 
-def get_rgb_sequence(r: int, g: int, b: int) -> str:
-    """Returns the terminal escape sequence to set the text color to the specified RGB value.
-    
-    Args:
-        r: Red component (0-255).
-        g: Green component (0-255).
-        b: Blue component (0-255).
-    
-    Returns:
-        The terminal escape sequence for the specified RGB color.
-    """
-    return f'\x1b[38;2;{r};{g};{b}m'
-
-def get_rgb_background_sequence(r: int, g: int, b: int) -> str:
-    """Returns the terminal escape sequence to set the background color to the specified RGB value.
-    
-    Args:
-        r: Red component (0-255).
-        g: Green component (0-255).
-        b: Blue component (0-255).
-    
-    Returns:
-        The terminal escape sequence for the specified RGB background color.
-    """
-    return f'\x1b[48;2;{r};{g};{b}m'
-
+@lru_cache(maxsize=4096)
 def get_rgb_front_and_back_sequence(fr: int, fg: int, fb: int, br: int, bg: int, bb: int) -> str:
     """Returns the terminal escape sequence to set both text and background colors to the specified RGB values.
     
@@ -97,3 +98,17 @@ def get_rgb_front_and_back_sequence(fr: int, fg: int, fb: int, br: int, bg: int,
         The terminal escape sequence for the specified RGB text and background colors.
     """
     return f'\x1b[38;2;{fr};{fg};{fb}m\x1b[48;2;{br};{bg};{bb}m'
+
+@lru_cache(maxsize=4096)
+def get_move_sequence_bytes(target: tuple[int, int]) -> bytes:
+    """Returns the terminal escape sequence as BYTES."""
+    # We build the string, then encode it. 
+    # Since this is cached, the encoding cost happens only once per position.
+    return f'\033[{target[1] + 1};{target[0] + 1}H'.encode('ascii')
+
+@lru_cache(maxsize=4096)
+def get_rgb_front_and_back_sequence_bytes(fr: int, fg: int, fb: int, br: int, bg: int, bb: int) -> bytes:
+    """Returns the terminal escape sequence as BYTES."""
+    # f-strings are faster than manual byte concatenation in Python 
+    # for this specific complexity level.
+    return f'\x1b[38;2;{fr};{fg};{fb}m\x1b[48;2;{br};{bg};{bb}m'.encode('ascii')
