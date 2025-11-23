@@ -2,11 +2,11 @@
 
 ## What is it?
 
-Terminal Video Player is a Python-based application that allows you to play videos directly in your terminal. The application will try to play the video at its original framerate, but don't be surprised if the video plays at a slower speed. The terminal is not designed to play videos after all. This project is an experiment and is under active development.
+Terminal Video Player is a Python-based application that allows you to play videos directly in your terminal. The application will try to play the video at its original framerate, but don't be surprised if the video plays at a slower speed. The terminal is not designed to play videos after all. This project is an experiment.
 
 ## How to use it
 
-To play a video, run the `main.py` script from your terminal and provide the path to your video file. IMPORTANT: You need to have a C compiler installed for this project to run.
+To play a video, run the `main.py` script from your terminal and provide the path to your video file.
 
 ### Basic Usage
 ```bash
